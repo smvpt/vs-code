@@ -20,17 +20,16 @@ logger = logging.getLogger(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
 db = Database()
 
-# Хранение состояния диалога: {user_id: {"step": ..., ...}}
+# Dialog state storage: {user_id: {"step": ..., ...}}
 user_state = {}
 
 
-
 class ReminderBase(ABC):
-    """Абстрактный базовый класс для напоминаний."""
+    """Abstract base class for reminders."""
 
     def __init__(self, text: str, remind_at: str):
         self._text = text               # protected
-        self.__remind_at = remind_at    # private — инкапсуляция
+        self.__remind_at = remind_at    # private — encapsulation
 
     @property
     def text(self):
@@ -38,11 +37,11 @@ class ReminderBase(ABC):
 
     @property
     def remind_at(self):
-        return self.__remind_at         # доступ только через property
+        return self.__remind_at         # access via property only
 
     @abstractmethod
     def format_message(self) -> str:
-        """Полиморфный метод — каждый подкласс форматирует по-своему."""
+        """Polymorphic method — each subclass formats differently."""
         ...
 
     def __str__(self):
@@ -50,35 +49,34 @@ class ReminderBase(ABC):
 
 
 class SimpleReminder(ReminderBase):
-    """Обычное напоминание."""
+    """Regular reminder."""
 
     def format_message(self) -> str:
         return f"🔔 {self._text}"
 
 
 class UrgentReminder(ReminderBase):
-    """Срочное напоминание — выделяется визуально."""
+    """Urgent reminder — visually highlighted."""
 
     def __init__(self, text: str, remind_at: str):
-        super().__init__(f"❗ СРОЧНО: {text}", remind_at)
+        super().__init__(f"❗ URGENT: {text}", remind_at)
 
     def format_message(self) -> str:
-        return f"🚨 *СРОЧНО* 🚨\n{self._text}"
+        return f"🚨 *URGENT* 🚨\n{self._text}"
 
 
 def make_reminder_obj(text: str, remind_at: str) -> ReminderBase:
-    """Фабричная функция: возвращает нужный подкласс по ключевым словам."""
-    urgent_keywords = ("срочно", "важно", "немедленно", "asap", "urgent")
+    """Factory function: returns the appropriate subclass based on keywords."""
+    urgent_keywords = ("срочно", "важно", "немедленно", "asap", "urgent", "important", "immediately")
     if any(kw in text.lower() for kw in urgent_keywords):
         return UrgentReminder(text, remind_at)
     return SimpleReminder(text, remind_at)
 
 
-
 def merge_sort_reminders(reminders: list) -> list:
     """
-    Сортирует напоминания по полю 'datetime' алгоритмом Merge Sort.
-    Сложность: O(n log n) — эффективнее insertion sort O(n²) на больших данных.
+    Sorts reminders by 'datetime' field using Merge Sort algorithm.
+    Complexity: O(n log n)
     """
     if len(reminders) <= 1:
         return reminders
@@ -92,7 +90,6 @@ def merge_sort_reminders(reminders: list) -> list:
 def _merge(left: list, right: list) -> list:
     result, i, j = [], 0, 0
     while i < len(left) and j < len(right):
-        # ISO-строки datetime сравниваются лексикографически = хронологически
         if left[i]["datetime"] <= right[j]["datetime"]:
             result.append(left[i]); i += 1
         else:
@@ -102,18 +99,18 @@ def _merge(left: list, right: list) -> list:
     return result
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# ─── Helpers & Keyboards ──────────────────────────────────────────────────────
 
 def log_query(user_id, username, text):
-    """Сохраняет все запросы пользователей в БД для Django-админки."""
+    """Saves all user queries to DB."""
     try:
         db.save_user_query(user_id, username, text)
     except Exception as e:
-        logger.error(f"Ошибка сохранения запроса: {e}")
+        logger.error(f"Error saving query: {e}")
 
 
 def save_and_confirm(message, text, dt, tz_name):
-    """Сохраняет напоминание и подтверждает пользователю."""
+    """Saves the reminder and sends a confirmation to the user."""
     user_id = message.from_user.id
     reminder_id = db.add_reminder(user_id, text, dt.isoformat())
 
@@ -121,15 +118,29 @@ def save_and_confirm(message, text, dt, tz_name):
     logger.info(str(obj))
 
     tz = pytz.timezone(tz_name)
-    formatted = dt.astimezone(tz).strftime("%d.%m.%Y в %H:%M")
+    formatted = dt.astimezone(tz).strftime("%B %d, %Y at %H:%M")
     bot.send_message(
         message.chat.id,
-        f"✅ *Напоминание создано!*\n\n"
+        f"✅ *Reminder created!*\n\n"
         f"📝 {text}\n"
         f"🗓 {formatted} ({tz_name})\n"
         f"🆔 ID: `{reminder_id}`",
         parse_mode="Markdown",
     )
+
+
+def main_menu_keyboard():
+    """Creates a persistent reply keyboard with main commands."""
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.add(
+        types.KeyboardButton("📋 List"),
+        types.KeyboardButton("🔍 Find"),
+        types.KeyboardButton("🌤 Weather"),
+        types.KeyboardButton("💱 Rates"),
+        types.KeyboardButton("🌍 Timezone"),
+        types.KeyboardButton("ℹ️ Help")
+    )
+    return kb
 
 
 def delete_keyboard(reminders):
@@ -142,15 +153,15 @@ def delete_keyboard(reminders):
 
 def timezone_keyboard():
     zones = [
-        ("🇷🇺 Москва",      "Europe/Moscow"),
-        ("🇷🇺 Новосибирск", "Asia/Novosibirsk"),
-        ("🇷🇺 Владивосток", "Asia/Vladivostok"),
-        ("🇰🇿 Алматы",      "Asia/Almaty"),
-        ("🇺🇦 Киев",        "Europe/Kiev"),
-        ("🇧🇾 Минск",       "Europe/Minsk"),
-        ("🇬🇧 Лондон",      "Europe/London"),
-        ("🇩🇪 Берлин",      "Europe/Berlin"),
-        ("🇺🇸 Нью-Йорк",    "America/New_York"),
+        ("🇬🇧 London",      "Europe/London"),
+        ("🇩🇪 Berlin",      "Europe/Berlin"),
+        ("🇺🇸 New York",    "America/New_York"),
+        ("🇷🇺 Moscow",      "Europe/Moscow"),
+        ("🇰🇿 Almaty",      "Asia/Almaty"),
+        ("🇺🇦 Kyiv",        "Europe/Kyiv"),
+        ("🇧🇾 Minsk",       "Europe/Minsk"),
+        ("🇷🇺 Novosibirsk", "Asia/Novosibirsk"),
+        ("🇷🇺 Vladivostok", "Asia/Vladivostok"),
     ]
     kb = types.InlineKeyboardMarkup(row_width=1)
     for label, tz in zones:
@@ -158,80 +169,55 @@ def timezone_keyboard():
     return kb
 
 
-# ─── /start ───────────────────────────────────────────────────────────────────
+# ─── Command Logic Functions ──────────────────────────────────────────────────
 
-@bot.message_handler(commands=["start"])
-def start(message):
-    username = message.from_user.username or message.from_user.first_name
-    log_query(message.from_user.id, username, "/start")
-
+def show_start(message):
     user = message.from_user
     db.add_user(user.id, user.first_name)
     tz = db.get_timezone(user.id)
+    
     bot.send_message(
         message.chat.id,
-        f"👋 Привет, *{user.first_name}*!\n\n"
-        "Просто напишите что и когда — создам напоминание:\n\n"
-        "• _стрим через 2 часа_\n"
-        "• _встреча завтра в 15:00_\n"
-        "• _позвонить маме в пятницу в 18:30_\n\n"
-        "📋 /list — список напоминаний\n"
-        "🔍 /find <слово> — поиск напоминаний\n"
-        "🌤 /weather [город] — погода\n"
-        "💱 /rates — курс валют\n"
-        "🌍 /timezone — часовой пояс\n"
-        "ℹ️ /help — помощь\n\n"
-        f"🕐 Ваш часовой пояс: *{tz}*",
+        f"👋 Hello, *{user.first_name}*!\n\n"
+        "Just type what and when you want to be reminded of, and I'll handle it:\n\n"
+        "• _stream in 2 hours_\n"
+        "• _meeting tomorrow at 15:00_\n"
+        "• _call mom on Friday at 18:30_\n\n"
+        "Use the menu buttons below to manage your reminders and tools.\n\n"
+        f"🕐 Your current timezone: *{tz}*",
         parse_mode="Markdown",
+        reply_markup=main_menu_keyboard()
     )
 
 
-# ─── /help ────────────────────────────────────────────────────────────────────
-
-@bot.message_handler(commands=["help"])
-def help_command(message):
-    username = message.from_user.username or message.from_user.first_name
-    log_query(message.from_user.id, username, "/help")
+def show_help(message):
     bot.send_message(
         message.chat.id,
-        "📖 *Как создать напоминание*\n\n"
-        "Напишите свободным текстом:\n\n"
-        "⏱ *Относительное время:*\n"
-        "  • `через 30 минут позвонить`\n"
-        "  • `кофе через час`\n\n"
-        "📅 *С датой и временем:*\n"
-        "  • `завтра в 9:00 зарядка`\n"
-        "  • `в пятницу в 18:00 встреча`\n"
-        "  • `послезавтра в 12:30 обед`\n\n"
-        "Если время непонятно — уточню.\n\n"
-        "📋 /list — список напоминаний\n"
-        "🔍 /find <слово> — поиск по напоминаниям\n"
-        "🌤 /weather [город] — текущая погода\n"
-        "💱 /rates — курс USD и EUR\n"
-        "🌍 /timezone — изменить часовой пояс\n"
-        "❌ /cancel — отменить текущее действие",
-        parse_mode="Markdown",
+        "📖 *How to create a reminder*\n\n"
+        "Type your reminder using natural language:\n\n"
+        "⏱ *Relative time:*\n"
+        "  • `call in 30 minutes`\n"
+        "  • `coffee in an hour`\n\n"
+        "📅 *With date and time:*\n"
+        "  • `tomorrow at 9:00 workout`\n"
+        "  • `friday at 18:00 meeting`\n\n"
+        "If the time is unclear, I will ask you to clarify.\n\n"
+        "👇 Use the menu buttons below to navigate quickly.",
+        parse_mode="Markdown"
     )
 
 
-# ─── /list ────────────────────────────────────────────────────────────────────
-
-@bot.message_handler(commands=["list"])
-def list_reminders(message):
+def show_list(message):
     user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    log_query(user_id, username, "/list")
-
-    # ЛАБ 2_03: сортируем через Merge Sort O(n log n)
     reminders = merge_sort_reminders(db.get_reminders(user_id))
 
     if not reminders:
-        bot.send_message(message.chat.id, "📭 Нет активных напоминаний.")
+        bot.send_message(message.chat.id, "📭 You have no active reminders.")
         return
 
     tz_name = db.get_timezone(user_id)
     tz = pytz.timezone(tz_name)
-    text = f"📋 *Напоминания* ({len(reminders)}):\n\n"
+    text = f"📋 *Your Reminders* ({len(reminders)}):\n\n"
 
     for r in reminders:
         dt = datetime.fromisoformat(r["datetime"]).astimezone(tz)
@@ -241,45 +227,75 @@ def list_reminders(message):
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=delete_keyboard(reminders))
 
 
-# ─── /timezone ────────────────────────────────────────────────────────────────
+def show_timezone(message):
+    bot.send_message(message.chat.id, "🌍 Select your timezone:", reply_markup=timezone_keyboard())
+
+
+def initiate_find(message):
+    bot.send_message(
+        message.chat.id,
+        "🔍 Please type `/find <keyword or regex>` to search.\n\n"
+        "Examples:\n"
+        "• `/find meeting` — finds everything containing 'meeting'\n"
+        "• `/find \\d{2}:\\d{2}` — finds reminders with timestamps like 12:30",
+        parse_mode="Markdown"
+    )
+
+
+def initiate_weather(message):
+    bot.send_message(
+        message.chat.id,
+        "🌤 Please type `/weather <city name>` to check the weather.\n"
+        "Example: `/weather London` or `/weather Almaty`",
+        parse_mode="Markdown"
+    )
+
+
+# ─── Telegram Command Handlers ────────────────────────────────────────────────
+
+@bot.message_handler(commands=["start"])
+def cmd_start(message):
+    username = message.from_user.username or message.from_user.first_name
+    log_query(message.from_user.id, username, "/start")
+    show_start(message)
+
+
+@bot.message_handler(commands=["help"])
+def cmd_help(message):
+    username = message.from_user.username or message.from_user.first_name
+    log_query(message.from_user.id, username, "/help")
+    show_help(message)
+
+
+@bot.message_handler(commands=["list"])
+def cmd_list(message):
+    username = message.from_user.username or message.from_user.first_name
+    log_query(message.from_user.id, username, "/list")
+    show_list(message)
+
 
 @bot.message_handler(commands=["timezone"])
 def cmd_timezone(message):
     username = message.from_user.username or message.from_user.first_name
     log_query(message.from_user.id, username, "/timezone")
-    bot.send_message(message.chat.id, "🌍 Выберите часовой пояс:", reply_markup=timezone_keyboard())
+    show_timezone(message)
 
-
-# ─── /cancel ──────────────────────────────────────────────────────────────────
 
 @bot.message_handler(commands=["cancel"])
 def cmd_cancel(message):
     user_state.pop(message.from_user.id, None)
-    bot.send_message(message.chat.id, "❌ Отменено.")
-
+    bot.send_message(message.chat.id, "❌ Action canceled.", reply_markup=main_menu_keyboard())
 
 
 @bot.message_handler(commands=["find"])
 def find_reminders(message):
-    """
-    Ищет напоминания по ключевому слову или регулярному выражению.
-    Пример: /find встреч  →  найдёт 'встреча', 'встречи', 'встречу'
-    Пример: /find \\d{2}:\\d{2}  →  найдёт напоминания со временем вида 12:30
-    """
     username = message.from_user.username or message.from_user.first_name
     user_id  = message.from_user.id
     log_query(user_id, username, message.text)
 
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        bot.send_message(
-            message.chat.id,
-            "🔍 Использование: `/find <ключевое слово или regex>`\n\n"
-            "Примеры:\n"
-            "• `/find встреч` — найдёт всё со словом встреча\n"
-            "• `/find \\d{2}:\\d{2}` — напоминания со временем вида 12:30",
-            parse_mode="Markdown",
-        )
+        initiate_find(message)
         return
 
     query = parts[1].strip()
@@ -287,7 +303,7 @@ def find_reminders(message):
     try:
         pattern = re.compile(query, re.IGNORECASE)
     except re.error:
-        bot.send_message(message.chat.id, "❌ Некорректное регулярное выражение.")
+        bot.send_message(message.chat.id, "❌ Invalid regular expression.")
         return
 
     reminders = db.get_reminders(user_id)
@@ -297,7 +313,6 @@ def find_reminders(message):
     found = []
     for r in reminders:
         dt_local = datetime.fromisoformat(r["datetime"]).astimezone(tz)
-        # ищем по тексту И по дате/времени в формате пользователя
         searchable = (
             f"{r['text']} "
             f"{dt_local.strftime('%d.%m.%Y')} "
@@ -310,24 +325,24 @@ def find_reminders(message):
     if not found:
         bot.send_message(
             message.chat.id,
-            f"🔍 По запросу `{query}` ничего не найдено.",
+            f"🔍 No reminders found for `{query}`.",
             parse_mode="Markdown",
         )
         return
 
-    count  = len(found)
-    ending = "е" if count == 1 else "я" if count in (2, 3, 4) else "й"
-    lines  = [f"🔍 Найдено *{count}* напоминани{ending} по `{query}`:\n"]
+    count = len(found)
+    ending = "s" if count > 1 else ""
+    lines  = [f"🔍 Found *{count}* reminder{ending} for `{query}`:\n"]
 
     for r, dt in found:
         short      = r["text"][:50] + "…" if len(r["text"]) > 50 else r["text"]
         dt_str     = dt.strftime("%d.%m.%Y %H:%M")
         searchable = f"{r['text']} {dt_str}"
-        matches    = pattern.findall(searchable)    # re.findall() — все совпадения
+        matches    = pattern.findall(searchable)
         lines.append(
             f"🔔 *{short}*\n"
             f"   🗓 {dt_str} | 🆔 `{r['id']}`\n"
-            f"   🎯 Совпадений: {len(matches)}"
+            f"   🎯 Matches: {len(matches)}"
         )
 
     bot.send_message(
@@ -338,46 +353,37 @@ def find_reminders(message):
     )
 
 
-
 @bot.message_handler(commands=["weather"])
 def get_weather(message):
-    """
-    Получает погоду для любого города через OpenWeather API.
-    Использование: /weather  или  /weather Astana
-    """
     username = message.from_user.username or message.from_user.first_name
     log_query(message.from_user.id, username, message.text)
 
-    # Часть 4: параметры запроса через params
     parts = message.text.split(maxsplit=1)
     city  = parts[1].strip() if len(parts) > 1 else "Almaty"
 
-    api_key = "4b5824b85143ae2fcacb616d6382baf3"    # Часть 5: API-ключ
+    api_key = "4b5824b85143ae2fcacb616d6382baf3"
     params  = {
         "q":     city,
         "appid": api_key,
         "units": "metric",
-        "lang":  "ru",
+        "lang":  "en",
     }
 
     try:
-        # Часть 1: GET-запрос
         response = requests.get(
             "https://api.openweathermap.org/data/2.5/weather",
             params=params,
             timeout=10,
         )
 
-        # Часть 3: обработка ошибок HTTP
         if response.status_code == 401:
-            bot.reply_to(message, "🔑 Неверный API-ключ OpenWeather (ошибка 401).")
+            bot.reply_to(message, "🔑 Invalid OpenWeather API key (Error 401).")
             return
         if response.status_code == 404:
-            bot.reply_to(message, f"🌍 Город *{city}* не найден.", parse_mode="Markdown")
+            bot.reply_to(message, f"🌍 City *{city}* not found.", parse_mode="Markdown")
             return
         response.raise_for_status()
 
-        # Часть 2: работа с JSON — вложенные поля
         data        = response.json()
         temp        = data["main"]["temp"]
         feels_like  = data["main"]["feels_like"]
@@ -387,37 +393,30 @@ def get_weather(message):
         description = data["weather"][0]["description"]
         country     = data["sys"]["country"]
 
-        # Часть 6: краткий анализ данных
-        comfort = "😌 Комфортно" if abs(temp - feels_like) < 3 else "🧥 Ощущается иначе"
+        comfort = "😌 Comfortable" if abs(temp - feels_like) < 3 else "🧥 Feels different"
 
         bot.reply_to(
             message,
-            f"🌤 *Погода в {city}, {country}*\n\n"
-            f"🌡 Температура: *{temp:.1f}°C* (ощущается {feels_like:.1f}°C)\n"
+            f"🌤 *Weather in {city}, {country}*\n\n"
+            f"🌡 Temperature: *{temp:.1f}°C* (Feels like {feels_like:.1f}°C)\n"
             f"🌥 {description.capitalize()}\n"
-            f"💧 Влажность: {humidity}%\n"
-            f"💨 Ветер: {wind_speed} м/с\n"
-            f"☁️ Облачность: {cloudiness}%\n\n"
+            f"💧 Humidity: {humidity}%\n"
+            f"💨 Wind: {wind_speed} m/s\n"
+            f"☁️ Cloudiness: {cloudiness}%\n\n"
             f"{comfort}",
             parse_mode="Markdown",
         )
 
     except requests.exceptions.ConnectionError:
-        bot.reply_to(message, "❌ Нет соединения с OpenWeather.")
+        bot.reply_to(message, "❌ Connection to OpenWeather failed.")
     except requests.exceptions.Timeout:
-        bot.reply_to(message, "⏱ Сервер погоды не отвечает.")
+        bot.reply_to(message, "⏱ Weather server timed out.")
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {e}")
-
+        bot.reply_to(message, f"❌ Error: {e}")
 
 
 @bot.message_handler(commands=["rates"])
 def get_exchange_rates(message):
-    """
-    Получает курсы валют к тенге с сайта Национального банка РК (nationalbank.kz).
-    Нацбанк отдаёт данные в XML — парсим через BeautifulSoup с xml-парсером.
-    Показывает: USD, EUR, RUB, CNY.
-    """
     import time
 
     username = message.from_user.username or message.from_user.first_name
@@ -427,11 +426,9 @@ def get_exchange_rates(message):
         today = datetime.now().strftime("%d.%m.%Y")
         url   = f"https://nationalbank.kz/rss/get_rates.cfm?fdate={today}"
 
-        # Часть 1: GET-запрос
         response = requests.get(url, timeout=15)
-        response.raise_for_status()     # Часть 3: обработка ошибок HTTP
+        response.raise_for_status()
 
-        # Парсинг XML через BeautifulSoup
         soup  = BeautifulSoup(response.content, "xml")
         items = soup.find_all("item")
 
@@ -449,30 +446,30 @@ def get_exchange_rates(message):
                 try:
                     qty = int(quant.get_text(strip=True)) if quant else 1
                     val = float(desc.get_text(strip=True))
-                    rates[code] = val / qty      # приводим к 1 единице
+                    rates[code] = val / qty
                 except ValueError:
                     pass
 
-        time.sleep(1)   # вежливая пауза между запросами
+        time.sleep(1)
 
         if rates:
             emojis = {"USD": "🇺🇸", "EUR": "🇪🇺", "RUB": "🇷🇺", "CNY": "🇨🇳"}
-            lines  = [f"💱 *Курсы Нацбанка РК на {today}*\n"]
+            lines  = [f"💱 *NBK Exchange Rates for {today}*\n"]
             for code in ["USD", "EUR", "RUB", "CNY"]:
                 if code in rates:
                     lines.append(f"{emojis[code]} *{code}* → `{rates[code]:.2f}` ₸")
             bot.send_message(message.chat.id, "\n".join(lines), parse_mode="Markdown")
         else:
-            bot.send_message(message.chat.id, "⚠️ Нацбанк не вернул данные. Попробуйте позже.")
+            bot.send_message(message.chat.id, "⚠️ National Bank returned no data. Please try again later.")
 
     except requests.exceptions.ConnectionError:
-        bot.send_message(message.chat.id, "❌ Нет соединения с nationalbank.kz.")
+        bot.send_message(message.chat.id, "❌ Connection to nationalbank.kz failed.")
     except requests.exceptions.Timeout:
-        bot.send_message(message.chat.id, "⏱ Сервер Нацбанка не отвечает.")
+        bot.send_message(message.chat.id, "⏱ National Bank server timed out.")
     except requests.exceptions.HTTPError as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка сервера: {e}")
+        bot.send_message(message.chat.id, f"❌ Server error: {e}")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Непредвиденная ошибка: {e}")
+        bot.send_message(message.chat.id, f"❌ Unexpected error: {e}")
 
 
 # ─── Inline callbacks ─────────────────────────────────────────────────────────
@@ -483,9 +480,9 @@ def cb_delete(call):
     success = db.delete_reminder(reminder_id, call.from_user.id)
     bot.answer_callback_query(call.id)
     if success:
-        bot.edit_message_text(f"✅ Напоминание #{reminder_id} удалено.", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text(f"✅ Reminder #{reminder_id} deleted.", call.message.chat.id, call.message.message_id)
     else:
-        bot.answer_callback_query(call.id, "❌ Не найдено.")
+        bot.answer_callback_query(call.id, "❌ Not found.")
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("tz_"))
@@ -493,10 +490,10 @@ def cb_timezone(call):
     tz_name = call.data[3:]
     db.set_timezone(call.from_user.id, tz_name)
     bot.answer_callback_query(call.id)
-    bot.edit_message_text(f"✅ Часовой пояс: *{tz_name}*", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    bot.edit_message_text(f"✅ Timezone set to: *{tz_name}*", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
 
 
-# ─── Умный ввод — NLP + диалог уточнения ─────────────────────────────────────
+# ─── Smart Input / Menu Buttons Processing ────────────────────────────────────
 
 @bot.message_handler(func=lambda message: True)
 def handle_smart_input(message):
@@ -508,7 +505,27 @@ def handle_smart_input(message):
 
     log_query(user_id, username, text)
 
-    # Шаг уточнения: ждём время
+    # 1. Check if user clicked a menu button
+    if text == "📋 List":
+        show_list(message)
+        return
+    elif text == "🔍 Find":
+        initiate_find(message)
+        return
+    elif text == "🌤 Weather":
+        initiate_weather(message)
+        return
+    elif text == "💱 Rates":
+        get_exchange_rates(message)
+        return
+    elif text == "🌍 Timezone":
+        show_timezone(message)
+        return
+    elif text == "ℹ️ Help":
+        show_help(message)
+        return
+
+    # 2. Handle conversation steps
     if state and state.get("step") == "waiting_time":
         dt = parse_time_only(text, tz_name)
         if dt:
@@ -518,19 +535,18 @@ def handle_smart_input(message):
         else:
             bot.send_message(
                 message.chat.id,
-                "❌ Не понял время. Попробуйте:\n_через 2 часа, завтра в 10:00, в пятницу в 18:00_",
+                "❌ Could not understand the time. Try:\n_in 2 hours, tomorrow at 10:00, Friday at 18:00_",
                 parse_mode="Markdown",
             )
         return
 
-    # Шаг уточнения: ждём текст
     if state and state.get("step") == "waiting_text":
         dt = datetime.fromisoformat(state["datetime"])
         user_state.pop(user_id, None)
         save_and_confirm(message, text, dt, tz_name)
         return
 
-    # NLP-парсинг
+    # 3. NLP Parsing
     result = parse_reminder(text, tz_name)
 
     if result["datetime"] and result["text"]:
@@ -538,24 +554,24 @@ def handle_smart_input(message):
 
     elif result["datetime"] and result["ambiguous"]:
         user_state[user_id] = {"step": "waiting_text", "datetime": result["datetime"].isoformat()}
-        bot.send_message(message.chat.id, "🕐 Время понял.\n\nО чём напомнить?")
+        bot.send_message(message.chat.id, "🕐 Time understood.\n\nWhat should I remind you about?")
 
     elif result["time_missing"]:
         user_state[user_id] = {"step": "waiting_time", "reminder_text": result["text"]}
         bot.send_message(
             message.chat.id,
-            f"📝 Напомнить: *{result['text']}*\n\n"
-            "⏰ Когда?\n_через 2 часа, завтра в 10:00, в пятницу в 18:00..._",
+            f"📝 Remind you to: *{result['text']}*\n\n"
+            "⏰ When?\n_in 2 hours, tomorrow at 10:00, Friday at 18:00..._",
             parse_mode="Markdown",
         )
     else:
-        bot.reply_to(message, "🤔 Не смог распознать. Попробуйте: _встреча завтра в 15:00_\nИли /help", parse_mode="Markdown")
+        bot.reply_to(message, "🤔 I couldn't recognize that. Try: _meeting tomorrow at 15:00_\nOr use ℹ️ Help", parse_mode="Markdown")
 
 
-# ─── Запуск ───────────────────────────────────────────────────────────────────
+# ─── Bot Startup ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     t = threading.Thread(target=start_scheduler, args=(bot, db), daemon=True)
     t.start()
-    logger.info("Бот на pyTelegramBotAPI запущен...")
+    logger.info("Bot on pyTelegramBotAPI started...")
     bot.infinity_polling()

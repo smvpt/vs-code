@@ -1,6 +1,6 @@
 """
-Простой парсер времени на регулярках — без dateparser.
-Понимает русский язык: "через 2 часа", "завтра в 14:00", "в пятницу в 18:30" и т.д.
+Simple time parser using regular expressions — no dateparser required.
+Supports English: "in 2 hours", "tomorrow at 14:00", "on friday at 18:30", etc.
 """
 import re
 from datetime import datetime, timedelta
@@ -8,43 +8,49 @@ from typing import Optional
 
 import pytz
 
-# ── Дни недели ────────────────────────────────────────────────────────────────
+# ── Weekdays ──────────────────────────────────────────────────────────────────
 _WEEKDAYS = {
-    "понедельник": 0, "вторник": 1, "среду": 2, "среда": 2,
-    "четверг": 3, "пятницу": 4, "пятница": 4,
-    "субботу": 5, "суббота": 5, "воскресенье": 6, "воскресенья": 6,
+    "monday": 0, "mon": 0,
+    "tuesday": 1, "tue": 1,
+    "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3,
+    "friday": 4, "fri": 4,
+    "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6,
 }
 
 _UNITS = {
-    "минут": 1, "минуту": 1, "минуты": 1,
-    "час": 60, "часа": 60, "часов": 60, "часу": 60,
-    "день": 1440, "дня": 1440, "дней": 1440,
-    "сутки": 1440, "суток": 1440,
+    "min": 1, "minute": 1,
+    "hour": 60, "hr": 60,
+    "day": 1440,
 }
 
-# ── Паттерны времени ──────────────────────────────────────────────────────────
-# "в 14:00" или "в 14.00"
-_RE_CLOCK = re.compile(r"\bв\s+(\d{1,2})[.:](\d{2})\b", re.IGNORECASE)
-# просто "14:00"
+# ── Time Patterns ─────────────────────────────────────────────────────────────
+# "at 14:00" or "at 14.00"
+_RE_CLOCK = re.compile(r"\bat\s+(\d{1,2})[.:](\d{2})\b", re.IGNORECASE)
+# bare time "14:00"
 _RE_CLOCK_BARE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
-# "через X минут/часов/дней"
+# "in X minutes/hours/days"
 _RE_DELTA = re.compile(
-    r"\bчерез\s+(\d+)\s+(минут\w*|час\w*|ден\w*|дн\w*|сутк\w*)",
-    re.IGNORECASE | re.UNICODE,
+    r"\bin\s+(\d+)\s+(min\w*|hour\w*|hr\w*|day\w*)",
+    re.IGNORECASE,
 )
-# "завтра", "послезавтра", "сегодня"
-_RE_DAY_WORD = re.compile(r"\b(послезавтра|завтра|сегодня)\b", re.IGNORECASE | re.UNICODE)
-# "в понедельник" и т.д.
+# "today", "tomorrow", "day after tomorrow"
+_RE_DAY_WORD = re.compile(
+    r"\b(day after tomorrow|tomorrow|today)\b", 
+    re.IGNORECASE
+)
+# "on friday", "on mon", etc.
 _RE_WEEKDAY = re.compile(
-    r"\bв\s+(понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)\b",
-    re.IGNORECASE | re.UNICODE,
+    r"\bon\s+(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\b",
+    re.IGNORECASE,
 )
-# "25.12.2025"
-_RE_DATE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b")
+# "25.12.2026" or "25/12/2026"
+_RE_DATE = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b")
 
 
 def _extract_clock(text: str):
-    """Возвращает (hour, minute) если нашли время, иначе None."""
+    """Returns (hour, minute) if clock pattern is found, otherwise None."""
     m = _RE_CLOCK.search(text)
     if m:
         return int(m.group(1)), int(m.group(2))
@@ -55,24 +61,24 @@ def _extract_clock(text: str):
 
 
 def _remove_time_parts(text: str) -> str:
-    """Вырезает всё что относится ко времени, оставляет смысловой текст."""
+    """Removes all time-related substrings, leaving only the prompt text."""
     text = _RE_DELTA.sub("", text)
     text = _RE_DAY_WORD.sub("", text)
     text = _RE_WEEKDAY.sub("", text)
     text = _RE_DATE.sub("", text)
     text = _RE_CLOCK.sub("", text)
     text = _RE_CLOCK_BARE.sub("", text)
-    # убираем одиночные предлоги и мусор
+    # clean up remaining prepositions and extra spaces
     text = re.sub(r"\s{2,}", " ", text)
-    text = re.sub(r"^\s*(в|на|о|об|и|,|\.)\s*", "", text, flags=re.IGNORECASE | re.UNICODE)
-    text = re.sub(r"\s*(в|на|о|об|и|,|\.)\s*$", "", text, flags=re.IGNORECASE | re.UNICODE)
+    text = re.sub(r"^\s*(at|on|in|and|,|\.)\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*(at|on|in|and|,|\.)\s*$", "", text, flags=re.IGNORECASE)
     return text.strip()
 
 
 def parse_time_only(user_input: str, timezone: str) -> Optional[datetime]:
     """
-    Парсит ТОЛЬКО время из короткого ввода.
-    Используется на шаге уточнения когда текст напоминания уже известен.
+    Parses ONLY time from a short input string.
+    Used during clarification step when the reminder text is already known.
     """
     tz = pytz.timezone(timezone)
     now = datetime.now(tz)
@@ -83,14 +89,14 @@ def parse_time_only(user_input: str, timezone: str) -> Optional[datetime]:
 
 def parse_reminder(user_input: str, timezone: str) -> dict:
     """
-    Парсит свободный текст в напоминание.
+    Parses free text into a reminder dict.
 
-    Возвращает dict:
-      text         — текст напоминания (или None)
-      datetime     — aware datetime или None
-      raw_time     — найденная строка времени
-      ambiguous    — True если время есть но текст пустой
-      time_missing — True если время не распозналось
+    Returns dict:
+      text         — reminder prompt text (or None)
+      datetime     — aware datetime object or None
+      raw_time     — extracted time string
+      ambiguous    — True if time is present but text is empty
+      time_missing — True if time could not be parsed
     """
     tz = pytz.timezone(timezone)
     now = datetime.now(tz)
@@ -109,7 +115,7 @@ def parse_reminder(user_input: str, timezone: str) -> dict:
             "time_missing": False,
         }
 
-    # Время не найдено
+    # Time not found
     return {
         "text": text,
         "datetime": None,
@@ -120,9 +126,9 @@ def parse_reminder(user_input: str, timezone: str) -> dict:
 
 
 def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetime]:
-    """Основная логика: определяет дату и время из текста."""
+    """Core logic: determines date and time from text."""
 
-    # 1. "через X минут/часов"
+    # 1. Relative delta: "in X minutes/hours/days"
     m = _RE_DELTA.search(text)
     if m:
         amount = int(m.group(1))
@@ -131,17 +137,17 @@ def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetim
         if minutes:
             return now + timedelta(minutes=minutes)
 
-    # 2. Определяем базовую дату
+    # 2. Determine base date
     base_date = None
 
     m = _RE_DAY_WORD.search(text)
     if m:
         word = m.group(1).lower()
-        if word == "сегодня":
+        if word == "today":
             base_date = now.date()
-        elif word == "завтра":
+        elif word == "tomorrow":
             base_date = (now + timedelta(days=1)).date()
-        elif word == "послезавтра":
+        elif word == "day after tomorrow":
             base_date = (now + timedelta(days=2)).date()
 
     if base_date is None:
@@ -152,7 +158,7 @@ def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetim
                 current_wd = now.weekday()
                 days_ahead = (target_wd - current_wd) % 7
                 if days_ahead == 0:
-                    days_ahead = 7  # следующая неделя
+                    days_ahead = 7  # next week
                 base_date = (now + timedelta(days=days_ahead)).date()
 
     if base_date is None:
@@ -164,7 +170,7 @@ def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetim
             except ValueError:
                 pass
 
-    # 3. Извлекаем время суток
+    # 3. Extract time of day (clock)
     clock = _extract_clock(text)
 
     if base_date and clock:
@@ -174,7 +180,7 @@ def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetim
             if dt > now:
                 return dt
 
-    # 4. Только дата без времени — ставим 09:00
+    # 4. Only date provided without time — set default to 09:00 or 12:00
     if base_date and not clock:
         dt = tz.localize(datetime(base_date.year, base_date.month, base_date.day, 9, 0))
         if dt <= now:
@@ -182,7 +188,7 @@ def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetim
         if dt > now:
             return dt
 
-    # 5. Только время без даты — сегодня или завтра
+    # 5. Only clock provided without date — today or tomorrow
     if clock and not base_date:
         h, mi = clock
         if 0 <= h <= 23 and 0 <= mi <= 59:
@@ -195,21 +201,20 @@ def _parse_dt(text: str, tz: pytz.BaseTzInfo, now: datetime) -> Optional[datetim
 
 
 def _match_unit(unit_str: str) -> int:
-    """Возвращает количество минут для единицы времени."""
+    """Returns number of minutes for a given time unit prefix."""
     for key, val in _UNITS.items():
-        if unit_str.startswith(key[:4]):
+        if unit_str.startswith(key[:3]):
             return val
     return 0
 
 
 def _find_raw_time(text: str) -> Optional[str]:
-    """Находит временну́ю подстроку для отображения пользователю."""
+    """Finds the raw time substring to display to the user."""
     for pattern in [_RE_DELTA, _RE_DAY_WORD, _RE_WEEKDAY, _RE_DATE]:
         m = pattern.search(text)
         if m:
-            # Добавляем clock если есть рядом
             clock = _RE_CLOCK.search(text) or _RE_CLOCK_BARE.search(text)
             if clock:
-                return f"{m.group(0).strip()} в {clock.group(0).replace('в ', '').strip()}"
+                return f"{m.group(0).strip()} at {clock.group(0).replace('at ', '').strip()}"
             return m.group(0).strip()
     return None
