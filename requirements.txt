@@ -1,3 +1,6 @@
-python-telegram-bot==21.6
+pyTelegramBotAPI==4.27.0
+requests==2.32.3
+beautifulsoup4==4.12.3
 pytz==2024.1
-pip install dateparser
+dateparser==1.2.0
+python-dateutil==2.9.0
