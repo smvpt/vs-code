@@ -1,0 +1,5 @@
+BOT_TOKEN = "YOUR_BOT_TOKEN"
+WEATHER_API = "YOUR_API_KEY"
+
+DEFAULT_TIMEZONE = "Asia/Almaty"
+DB_PATH = "reminders.db"
