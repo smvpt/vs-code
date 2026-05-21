@@ -7,11 +7,11 @@ def get_exchange_rates():
     url = 'https://www.cbr.ru/eng/currency_base/daily/'
     
     try:
-        time.sleep(1) # Соблюдаем вежливую паузу (требования лабы)[cite: 5]
+        time.sleep(1) # Соблюдаем вежливую паузу 
         response = requests.get(url)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Поиск данных в таблице (find_all)[cite: 5]
+        # Поиск данных в таблице 
         table = soup.find('table', {'class': 'data'})
         rows = table.find_all('tr')
         

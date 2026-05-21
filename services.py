@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-# АБСТРАКЦИЯ (Part 2 лабы): Базовый класс для всех уведомлений[cite: 1]
+# АБСТРАКЦИЯ (): Базовый класс для всех уведомлений
 class NotificationService(ABC):
     @abstractmethod
     def send_notification(self, target_id, message):
@@ -9,7 +9,7 @@ class NotificationService(ABC):
 # НАСЛЕДОВАНИЕ: Конкретная реализация для Telegram
 class TelegramNotification(NotificationService):
     def __init__(self, token):
-        self.__token = token  # ИНКАПСУЛЯЦИЯ: Приватный атрибут (Part 2 лабы)[cite: 1]
+        self.__token = token  # ИНКАПСУЛЯЦИЯ: Приватный атрибут 
 
     def send_notification(self, target_id, message):
         import requests

@@ -8,7 +8,6 @@ class Database:
         self.db_path = DB_PATH
         self._init_db()
 
-    # Добавь это в database.py в класс Database
     def save_user_query(self, user_id, username, text):
         with self._get_conn() as conn:
             conn.execute(
