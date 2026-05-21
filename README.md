@@ -276,8 +276,14 @@ python manage.py runserver
 ## Reminder Creation
 ![Reminder](screenshots/reminder.png)
 
+## List
+![List](screenshots/list.png)
+
 ## Weather Feature
 ![Weather](screenshots/weather.png)
+
+## Rates Feature
+![Rates](screenshots/rates.png)
 
 ## Timezone Selection
 ![Timezone](screenshots/timezone.png)
