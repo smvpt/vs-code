@@ -9,7 +9,7 @@ import requests
 from abc import ABC, abstractmethod
 from bs4 import BeautifulSoup
 
-from config import BOT_TOKEN, DEFAULT_TIMEZONE
+from config import BOT_TOKEN, DEFAULT_TIMEZONE, WEATHER_API
 from database import Database
 from nlp_parser import parse_reminder, parse_time_only
 from scheduler import start_scheduler
@@ -144,10 +144,16 @@ def main_menu_keyboard():
 
 
 def delete_keyboard(reminders):
+    """Creates inline keyboard to delete single or ALL reminders."""
     kb = types.InlineKeyboardMarkup()
     for r in reminders:
         short = r["text"][:35] + "…" if len(r["text"]) > 35 else r["text"]
         kb.add(types.InlineKeyboardButton(f"❌ #{r['id']} {short}", callback_data=f"del_{r['id']}"))
+    
+    # КНОПКА УДАЛЕНИЯ ВСЕХ НАПОМИНАНИЙ (отображается только если задач > 1)
+    if len(reminders) > 1:
+        kb.add(types.InlineKeyboardButton("🗑️ Clear All Reminders", callback_data="clear_all_reminders"))
+        
     return kb
 
 
@@ -361,7 +367,7 @@ def get_weather(message):
     parts = message.text.split(maxsplit=1)
     city  = parts[1].strip() if len(parts) > 1 else "Almaty"
 
-    api_key = "4b5824b85143ae2fcacb616d6382baf3"
+    api_key = WEATHER_API
     params  = {
         "q":     city,
         "appid": api_key,
@@ -474,15 +480,74 @@ def get_exchange_rates(message):
 
 # ─── Inline callbacks ─────────────────────────────────────────────────────────
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("del_"))
 def cb_delete(call):
     reminder_id = int(call.data[4:])
-    success = db.delete_reminder(reminder_id, call.from_user.id)
-    bot.answer_callback_query(call.id)
+    user_id = call.from_user.id
+    
+    success = db.delete_reminder(reminder_id, user_id)
+    
     if success:
-        bot.edit_message_text(f"✅ Reminder #{reminder_id} deleted.", call.message.chat.id, call.message.message_id)
+        reminders = merge_sort_reminders(db.get_reminders(user_id))
+        bot.answer_callback_query(call.id, text="Deleted successfully!")
+        
+        if not reminders:
+            bot.edit_message_text(
+                text="📭 You have no active reminders.",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+        else:
+            tz_name = db.get_timezone(user_id)
+            tz = pytz.timezone(tz_name)
+            text = f"📋 *Your Reminders* ({len(reminders)}):\n\n"
+
+            for r in reminders:
+                dt = datetime.fromisoformat(r["datetime"]).astimezone(tz)
+                short = r["text"][:40] + "…" if len(r["text"]) > 40 else r["text"]
+                text += f"🔔 *{short}*\n   🗓 {dt.strftime('%d.%m.%Y %H:%M')}\n   🆔 `{r['id']}`\n\n"
+            
+            bot.edit_message_text(
+                text=text,
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=delete_keyboard(reminders)
+            )
     else:
-        bot.answer_callback_query(call.id, "❌ Not found.")
+        bot.answer_callback_query(call.id, text="❌ Reminder not found.", show_alert=True)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "clear_all_reminders")
+def cb_clear_all(call):
+    """Callback handler to wipe out all active reminders for the current user."""
+    user_id = call.from_user.id
+    
+    try:
+        # Проверяем наличие специального пакетного метода в вашем Database классе.
+        # Если его нет — удаляем поочередно циклом.
+        if hasattr(db, 'delete_all_reminders'):
+            db.delete_all_reminders(user_id)
+        elif hasattr(db, 'clear_all_reminders'):
+            db.clear_all_reminders(user_id)
+        else:
+            reminders = db.get_reminders(user_id)
+            for r in reminders:
+                db.delete_reminder(r["id"], user_id)
+
+        # Показываем всплывающее уведомление
+        bot.answer_callback_query(call.id, text="All reminders cleared!")
+        
+        # Обновляем старое сообщение со списком
+        bot.edit_message_text(
+            text="📭 You have no active reminders.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        
+    except Exception as e:
+        logger.error(f"Error while clearing all reminders for user {user_id}: {e}")
+        bot.answer_callback_query(call.id, text="❌ Failed to clear list.", show_alert=True)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("tz_"))
